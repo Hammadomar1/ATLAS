@@ -1,0 +1,8 @@
+{
+  "baselines": [
+    { "name": "reflex_only", "use_hnsp": false, "use_meta": false, "use_shield": true },
+    { "name": "reflex_hnsp", "use_hnsp": true, "use_meta": false, "use_shield": true },
+    { "name": "full_atlas", "use_hnsp": true, "use_meta": true, "use_shield": true },
+    { "name": "no_shield", "use_hnsp": true, "use_meta": true, "use_shield": false }
+  ]
+}

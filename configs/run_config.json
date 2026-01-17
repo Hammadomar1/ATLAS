@@ -1,0 +1,11 @@
+{
+  "seed": 1,
+  "settings": {
+    "run_id": "atlas_run",
+    "ticks": 200,
+    "reflex_period_s": 0.02,
+    "meta_period_ticks": 5,
+    "scenario_preset": "corridor",
+    "output_dir": "runs"
+  }
+}

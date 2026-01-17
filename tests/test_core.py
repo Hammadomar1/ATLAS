@@ -26,7 +26,7 @@ class SafetyShieldTests(unittest.TestCase):
     def test_selects_safe_action_near_nominal(self) -> None:
         shield = SafetyShield(ShieldConfig(hazard_threshold=0.5, halt_action=0.0))
         output = shield.apply(0.1, [0.4, 0.2, 0.6])
-        self.assertFalse(output.used_fallback)
+        self.assertFalse(output.safe_set_empty)
         self.assertGreaterEqual(output.action, -1.0)
         self.assertLessEqual(output.action, 1.0)
 
