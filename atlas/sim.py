@@ -14,6 +14,9 @@ from atlas.reflex_engine import ReflexConfig, ReflexEngine
 from atlas.safety_shield import SafetyShield, ShieldConfig
 from atlas.supervisor import Supervisor, SupervisorConfig
 from atlas.system import AtlasSystem, SystemConfig
+from pathlib import Path
+
+from atlas.logging import EpisodeLogger, RunManifest, resolve_git_hash
 from atlas.telemetry import MetricsLogger, TelemetryPublisher
 
 
