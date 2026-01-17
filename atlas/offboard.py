@@ -4,9 +4,10 @@ import queue
 import random
 import threading
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from pathlib import Path
+from typing import Mapping, Optional, Sequence
 
-from atlas.meta_cognition import ModulationPolicy, ViTStub
+from atlas.meta_cognition import MetaCognitionModel, MetaPolicyModel
 from atlas.types import MetaArrival, MetaPacket
 
 
@@ -18,6 +19,9 @@ class MetaConfig:
     update_scale: float
     seed: int = 0
     policy_scale: float = 1e-6
+    weights_path: Optional[Path] = None
+    use_real_vit: bool = False
+    vit_model_name: str = "google/vit-base-patch16-224"
 
 
 class MetaCognitionServer(threading.Thread):
@@ -27,9 +31,17 @@ class MetaCognitionServer(threading.Thread):
         super().__init__(daemon=True)
         self._config = config
         self._rng = random.Random(config.seed)
-        self._vit = ViTStub()
-        self._policy = ModulationPolicy(scale=config.policy_scale, theta_dim=config.theta_dim)
+        self._model: MetaPolicyModel
+        if config.use_real_vit:
+            from atlas.vit_policy import ViTMetaPolicyModel
+
+            self._model = ViTMetaPolicyModel(model_name=config.vit_model_name, theta_dim=config.theta_dim)
+        else:
+            self._model = MetaCognitionModel(scale=config.policy_scale, theta_dim=config.theta_dim)
+        if config.weights_path is not None:
+            self._model.load_weights(config.weights_path)
         self._latest_frame: Optional[Sequence[Sequence[Sequence[int]]]] = None
+        self._latest_telemetry: Mapping[str, float] = {}
         self._inbound: "queue.Queue[MetaPacket]" = queue.Queue()
         self._outbound: "queue.Queue[MetaArrival]" = queue.Queue()
         self._stop_event = threading.Event()
@@ -76,13 +88,13 @@ class MetaCognitionServer(threading.Thread):
     def stop(self) -> None:
         self._stop_event.set()
 
-    def observe_frame(self, frame: Sequence[Sequence[Sequence[int]]]) -> None:
+    def observe_frame(self, frame: Sequence[Sequence[Sequence[int]]], telemetry: Mapping[str, float]) -> None:
         self._latest_frame = frame
+        self._latest_telemetry = telemetry
 
     def synthesize_update(self, k: int, created_at_t: int) -> MetaPacket:
         if self._latest_frame is not None:
-            embedding = self._vit.embed(self._latest_frame)
-            delta = list(self._policy.compute_delta(embedding))
+            delta = list(self._model.infer_delta(self._latest_frame, self._latest_telemetry))
         else:
             delta = [
                 self._rng.uniform(-self._config.update_scale, self._config.update_scale)

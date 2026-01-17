@@ -101,9 +101,7 @@ class AtlasSystem:
         shield_output = self._safety_shield.apply(pre_action, reflex_output.drive.drive)
 
         downsampled = frame[::2]
-        self._meta_server.observe_frame(downsampled)
-        self._telemetry.publish(
-            Telemetry(
+        telemetry = Telemetry(
                 t=t,
                 downsampled_frame=downsampled,
                 nominal_action=reflex_output.nominal_action,
@@ -120,7 +118,16 @@ class AtlasSystem:
                 meta_arrived=meta_arrived,
                 meta_age=supervisor_state.meta_age,
             )
+        self._meta_server.observe_frame(
+            downsampled,
+            {
+                "hazard": hazard,
+                "oscillation": oscillation,
+                "novelty": observer_output.novelty,
+                "soft_veto": observer_output.soft_veto,
+            },
         )
+        self._telemetry.publish(telemetry)
 
         duration = time.perf_counter() - start
         self._metrics.record(

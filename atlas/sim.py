@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import random
+from pathlib import Path
 from typing import Sequence
 
+from atlas.config import RunConfig, load_config, set_determinism
+from atlas.logging import EpisodeLogger, RunManifest, resolve_git_hash
 from atlas.observer import HNSPConfig, HNSPObserver, QuantizerConfig
 from atlas.offboard import MetaCognitionServer, MetaConfig
 from atlas.parameter_server import ParameterBounds, ParameterServer
@@ -20,7 +24,11 @@ def make_frame(width: int, height: int) -> Sequence[Sequence[Sequence[float]]]:
     return [[[random.random() for _ in range(3)] for _ in range(width)] for _ in range(height)]
 
 
-def run_simulation(ticks: int = 50) -> None:
+def run_simulation(ticks: int = 50, run_config: RunConfig | None = None) -> None:
+    if run_config is None:
+        run_config = RunConfig(seed=1, settings={"ticks": ticks})
+    set_determinism(run_config.seed)
+    ticks = int(run_config.settings.get("ticks", ticks))
     reflex_engine = ReflexEngine(
         ReflexConfig(
             bearings=11,
@@ -68,9 +76,16 @@ def run_simulation(ticks: int = 50) -> None:
     )
     telemetry = TelemetryPublisher()
     metrics = MetricsLogger()
+    output_dir = Path(run_config.settings.get("output_dir", "runs"))
+    run_id = run_config.settings.get("run_id", "sim")
     logger = EpisodeLogger(
-        Path("runs"),
-        RunManifest(run_id="sim", seed=1, config={"ticks": ticks}, git_hash=resolve_git_hash()),
+        output_dir,
+        RunManifest(
+            run_id=run_id,
+            seed=run_config.seed,
+            config=run_config.settings,
+            git_hash=resolve_git_hash(),
+        ),
     )
 
     system = AtlasSystem(
@@ -99,4 +114,7 @@ def run_simulation(ticks: int = 50) -> None:
 
 
 if __name__ == "__main__":
-    run_simulation()
+    parser = argparse.ArgumentParser(description="Run a short ATLAS simulation.")
+    parser.add_argument("--config", type=Path, default=Path("configs/run_config.json"))
+    args = parser.parse_args()
+    run_simulation(run_config=load_config(args.config))

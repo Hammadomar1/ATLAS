@@ -28,8 +28,7 @@ class FakeReflexEngine:
 
 
 class SystemSafetyTests(unittest.TestCase):
-    def test_action_is_safe_or_halt(self) -> None:
-        drive = [0.2, 0.9, 0.4]
+    def _build_system(self, drive: list[float], meta_config: MetaConfig) -> AtlasSystem:
         reflex = FakeReflexEngine(drive)
         observer = HNSPObserver(
             HNSPConfig(
@@ -59,33 +58,111 @@ class SystemSafetyTests(unittest.TestCase):
             )
         )
         shield = SafetyShield(ShieldConfig(hazard_threshold=0.5, halt_action=-0.3))
-        meta = MetaCognitionServer(
-            MetaConfig(theta_dim=1, delay_max_ticks=0, dropout_prob=0.0, update_scale=0.1)
-        )
         telemetry = TelemetryPublisher()
         metrics = MetricsLogger()
         parameter_server = ParameterServer(
             initial_theta=[0.5],
             bounds=ParameterBounds(minimum=[0.0], maximum=[1.0]),
         )
-        system = AtlasSystem(
+        return AtlasSystem(
             SystemConfig(reflex_period_s=0.01, meta_period_ticks=10),
             reflex,
             observer,
             supervisor,
             shield,
             parameter_server,
-            meta_server=meta,
+            meta_server=MetaCognitionServer(meta_config),
             telemetry=telemetry,
             metrics=metrics,
         )
+
+    def test_action_is_safe_or_halt(self) -> None:
+        drive = [0.2, 0.9, 0.4]
+        system = self._build_system(
+            drive,
+            MetaConfig(theta_dim=1, delay_max_ticks=0, dropout_prob=0.0, update_scale=0.1),
+        )
         system.start()
         action = system.reflex_tick(0, [[[0.0]]])
-        safe_action, safe_set_empty, _, _ = shield.safe_action(action, drive)
+        safe_action, safe_set_empty, _, _ = system._safety_shield.safe_action(action, drive)
         if safe_set_empty:
-            self.assertEqual(action, shield._config.halt_action)
+            self.assertEqual(action, system._safety_shield._config.halt_action)
         else:
             self.assertEqual(action, safe_action)
+        system.stop()
+
+    def test_action_is_safe_or_halt_over_many_ticks(self) -> None:
+        drive = [0.1, 0.2, 0.9, 0.4, 0.3]
+        system = self._build_system(
+            drive,
+            MetaConfig(theta_dim=1, delay_max_ticks=0, dropout_prob=1.0, update_scale=0.1),
+        )
+        system.start()
+        for t in range(60):
+            action = system.reflex_tick(t, [[[0.0]]])
+            telemetry = system._telemetry.drain()[-1]
+            safe_action, safe_set_empty, _, _ = system._safety_shield.safe_action(
+                telemetry.pre_action,
+                drive,
+            )
+            if safe_set_empty:
+                self.assertEqual(action, system._safety_shield._config.halt_action)
+            else:
+                self.assertEqual(action, safe_action)
+        system.stop()
+
+    def test_emergency_recovery_hysteresis(self) -> None:
+        supervisor = Supervisor(
+            SupervisorConfig(
+                hazard_high=0.8,
+                hazard_low=0.3,
+                oscillation_high=3.0,
+                novelty_high=0.7,
+                meta_timeout_ticks=5,
+            )
+        )
+        state = supervisor.update(
+            t=0,
+            hazard=0.9,
+            oscillation=0.0,
+            novelty=0.0,
+            safe_set_empty=False,
+            meta_arrived=False,
+        )
+        self.assertEqual(state.mode, "Emergency")
+        state = supervisor.update(
+            t=1,
+            hazard=0.2,
+            oscillation=0.0,
+            novelty=0.0,
+            safe_set_empty=False,
+            meta_arrived=False,
+        )
+        self.assertEqual(state.mode, "Guarded")
+
+    def test_meta_stalled_forever(self) -> None:
+        drive = [0.2, 0.4, 0.1]
+        system = self._build_system(
+            drive,
+            MetaConfig(theta_dim=1, delay_max_ticks=0, dropout_prob=1.0, update_scale=0.1),
+        )
+        system._supervisor = Supervisor(
+            SupervisorConfig(
+                hazard_high=1.0,
+                hazard_low=0.5,
+                oscillation_high=3.0,
+                novelty_high=0.7,
+                meta_timeout_ticks=2,
+            )
+        )
+        system.start()
+        for t in range(6):
+            system.maybe_emit_meta(t)
+            system.reflex_tick(t, [[[0.0]]])
+        telemetry = system._telemetry.drain()[-1]
+        self.assertFalse(telemetry.meta_arrived)
+        self.assertIsNotNone(telemetry.meta_age)
+        self.assertGreater(telemetry.meta_age, 2)
         system.stop()
 
 
