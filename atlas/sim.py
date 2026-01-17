@@ -3,13 +3,16 @@ from __future__ import annotations
 import random
 from typing import Sequence
 
-from atlas.observer import HNSPConfig, HNSPObserver
+from atlas.observer import HNSPConfig, HNSPObserver, QuantizerConfig
 from atlas.offboard import MetaCognitionServer, MetaConfig
 from atlas.parameter_server import ParameterBounds, ParameterServer
 from atlas.reflex_engine import ReflexConfig, ReflexEngine
 from atlas.safety_shield import SafetyShield, ShieldConfig
 from atlas.supervisor import Supervisor, SupervisorConfig
 from atlas.system import AtlasSystem, SystemConfig
+from pathlib import Path
+
+from atlas.logging import EpisodeLogger, RunManifest, resolve_git_hash
 from atlas.telemetry import MetricsLogger, TelemetryPublisher
 
 
@@ -28,13 +31,31 @@ def run_simulation(ticks: int = 50) -> None:
             controller_gain=1.0,
         )
     )
-    observer = HNSPObserver(HNSPConfig(memory_dim=8, novelty_threshold=0.8))
+    observer = HNSPObserver(
+        HNSPConfig(
+            memory_dim=8,
+            binary_mode=True,
+            seed=1,
+            trajectory_length=4,
+            tm_length=8,
+            prototype_count=4,
+            x_quantizer=QuantizerConfig(bins=8, min_value=0.0, max_value=10.0),
+            w_quantizer=QuantizerConfig(bins=4, min_value=0.0, max_value=1.0),
+            s_quantizer=QuantizerConfig(bins=4, min_value=0.0, max_value=1.0),
+            x_dot_quantizer=QuantizerConfig(bins=4, min_value=-1.0, max_value=1.0),
+            rho_quantizer=QuantizerConfig(bins=4, min_value=0.0, max_value=1.0),
+            novelty_threshold_low=0.2,
+            novelty_threshold_high=0.8,
+            prototype_update_threshold=0.7,
+        )
+    )
     supervisor = Supervisor(
         SupervisorConfig(
-            hazard_guard_threshold=1.0,
-            oscillation_guard_threshold=3.0,
+            hazard_high=1.0,
+            hazard_low=0.5,
+            oscillation_high=3.0,
+            novelty_high=0.7,
             meta_timeout_ticks=10,
-            guard_dwell_ticks=5,
         )
     )
     safety_shield = SafetyShield(ShieldConfig(hazard_threshold=0.7, halt_action=0.0))
@@ -47,6 +68,10 @@ def run_simulation(ticks: int = 50) -> None:
     )
     telemetry = TelemetryPublisher()
     metrics = MetricsLogger()
+    logger = EpisodeLogger(
+        Path("runs"),
+        RunManifest(run_id="sim", seed=1, config={"ticks": ticks}, git_hash=resolve_git_hash()),
+    )
 
     system = AtlasSystem(
         SystemConfig(reflex_period_s=0.02, meta_period_ticks=5),
@@ -65,7 +90,12 @@ def run_simulation(ticks: int = 50) -> None:
         frame = make_frame(16, 12)
         system.maybe_emit_meta(t)
         system.reflex_tick(t, frame)
+        for item in telemetry.drain():
+            logger.record_telemetry(item)
+        for item in metrics.drain():
+            logger.record_metrics(item)
     system.stop()
+    logger.flush_episode(episode_id=0)
 
 
 if __name__ == "__main__":
