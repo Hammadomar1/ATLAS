@@ -14,6 +14,9 @@ class ReflexInput:
 class ProtoEvent:
     bearing_index: int
     strength: float
+    width: float = 1.0
+    velocity: float = 0.0
+    visibility: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,7 @@ class SupervisorState:
     meta_ok: bool
     guard_enabled: bool
     meta_age: Optional[int]
+    accept_meta: bool
 
 
 @dataclass(frozen=True)
@@ -78,9 +82,17 @@ class Telemetry:
     t: int
     downsampled_frame: Sequence[Sequence[Sequence[float]]]
     nominal_action: float
+    pre_action: float
     shielded_action: float
     hazard: float
+    kappa: float
+    safe_set_size: int
     oscillation: float
+    mode: str
+    novelty: float
+    soft_veto: float
+    soft_veto_hold: float
+    meta_arrived: bool
     meta_age: Optional[int]
 
 
